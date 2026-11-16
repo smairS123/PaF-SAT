@@ -1,0 +1,268 @@
+diff --git a/boOX-y/src/core/agent.cpp b/boOX-y/src/core/agent.cpp
+index 1c9c354..5ecd06d 100644
+--- a/boOX-y/src/core/agent.cpp
++++ b/boOX-y/src/core/agent.cpp
+@@ -2219,6 +2219,60 @@ namespace boOX
+ 	return construct_GraphRotationMDD(m_environment, max_total_cost, MDD, extra_cost, extra_MDD);	
+     }
+ 
++
++    sInt_32 sInstance::construct_MakespanRotationMDD(sInt_32     makespan,
++						      MDD_vector &MDD,
++						      MDD_vector &extra_MDD)
++    {
++	return construct_GraphMakespanRotationMDD(m_environment, makespan, MDD, extra_MDD);
++    }
++
++
++    sInt_32 sInstance::construct_GraphMakespanRotationMDD(sUndirectedGraph &graph,
++							   sInt_32           makespan,
++							   MDD_vector       &MDD,
++							   MDD_vector       &extra_MDD)
++    {
++	sInt_32 N_Vertices = graph.get_VertexCount();
++	sInt_32 N_Agents = m_start_configuration.get_AgentCount();
++
++	MDD.clear();
++	extra_MDD.clear();
++
++	VertexIDs_vector source_IDs;
++	VertexIDs_vector goal_IDs;
++	collect_Endpoints(source_IDs, goal_IDs);
++	graph.calc_SourceGoalShortestPaths(source_IDs, goal_IDs);
++
++	const sUndirectedGraph::Distances_2d_vector &source_Distances = graph.get_SourceShortestPaths();
++	const sUndirectedGraph::Distances_2d_vector &goal_Distances = graph.get_GoalShortestPaths();
++
++	MDD.resize(N_Agents + 1);
++	extra_MDD.resize(N_Agents + 1);
++
++	for (sInt_32 agent_id = 1; agent_id <= N_Agents; ++agent_id)
++	{
++	    MDD[agent_id].resize(makespan + 1);
++	    extra_MDD[agent_id].resize(makespan + 1);
++
++	    sInt_32 source_vertex_id = m_start_configuration.get_AgentLocation(agent_id);
++	    sInt_32 goal_vertex_id = m_goal_configuration.get_AgentLocation(agent_id);
++
++	    for (sInt_32 level = 0; level <= makespan; ++level)
++	    {
++		for (sInt_32 vertex_id = 0; vertex_id < N_Vertices; ++vertex_id)
++		{
++		    if (source_Distances[source_vertex_id][vertex_id] <= level
++			&& (goal_vertex_id < 0 || goal_Distances[goal_vertex_id][vertex_id] <= makespan - level))
++		    {
++			MDD[agent_id][level].push_back(vertex_id);
++		    }
++		}
++	    }
++	}
++	return makespan;
++    }
++
+     
+     sInt_32 sInstance::construct_GraphRotationMDD(sUndirectedGraph &graph,
+ 						  sInt_32           max_total_cost,
+diff --git a/boOX-y/src/core/agent.h b/boOX-y/src/core/agent.h
+index 153ef5f..98bb8ce 100644
+--- a/boOX-y/src/core/agent.h
++++ b/boOX-y/src/core/agent.h
+@@ -278,6 +278,15 @@ namespace boOX
+ 					   MDD_vector       &MDD,
+ 					   sInt_32          &extra_cost,
+ 					   MDD_vector       &extra_MDD);
++
++	sInt_32 construct_MakespanRotationMDD(sInt_32     makespan,
++					      MDD_vector &MDD,
++					      MDD_vector &extra_MDD);
++
++	sInt_32 construct_GraphMakespanRotationMDD(sUndirectedGraph &graph,
++						   sInt_32           makespan,
++						   MDD_vector       &MDD,
++						   MDD_vector       &extra_MDD);
+         /*----------------------------------------------------------------------------*/	
+ 
+ 	static void construct_InverseMDD(const MDD_vector &MDD, InverseMDD_vector &inverse_MDD);
+diff --git a/boOX-y/src/core/smtcbs.cpp b/boOX-y/src/core/smtcbs.cpp
+index 28acd45..f6dfe03 100644
+--- a/boOX-y/src/core/smtcbs.cpp
++++ b/boOX-y/src/core/smtcbs.cpp
+@@ -1870,6 +1870,83 @@ namespace boOX
+ 	}
+ 	return std::pair<sInt_32, sInt_32>(-1, -1);
+     }
++
++
++    std::pair<sInt_32, sInt_32> sSMTCBS::find_ShortestMakespanNonconflictingRotationInverseDepleted(sSolution &solution, sInt_32 makespan_limit) const
++    {
++	return find_ShortestMakespanNonconflictingRotation(solution, makespan_limit, false);
++    }
++
++
++    std::pair<sInt_32, sInt_32> sSMTCBS::find_ShortestMakespanNonconflictingRotationInverseOmitted(sSolution &solution, sInt_32 makespan_limit) const
++    {
++	return find_ShortestMakespanNonconflictingRotation(solution, makespan_limit, true);
++    }
++
++
++    std::pair<sInt_32, sInt_32> sSMTCBS::find_ShortestMakespanNonconflictingRotation(sSolution &solution, sInt_32 makespan_limit, bool omitted) const
++    {
++	sDouble start_time = sStatistics::get_CPU_Seconds();
++	sInt_32 N_agents = m_Instance->m_start_configuration.get_AgentCount();
++	// MPF stores no goal entries for trailing unassigned agent IDs.
++	sInt_32 undefined_location = sConfiguration::UNDEFINED_LOCATION;
++	m_Instance->m_goal_configuration.m_agent_Locs.resize(N_agents + 1, undefined_location);
++	sInstance::VertexIDs_vector sources, goals;
++	m_Instance->collect_Endpoints(sources, goals);
++	m_Instance->m_environment.calc_SourceGoalShortestPaths(sources, goals);
++	const sUndirectedGraph::Distances_2d_vector &distances = m_Instance->m_environment.get_SourceShortestPaths();
++	sInt_32 lower_bound = 0;
++	for (sInt_32 i = 0; i < N_agents; ++i)
++	{
++	    if (goals[i] >= 0)
++	    {
++		lower_bound = sMAX(lower_bound, distances[sources[i]][goals[i]]);
++	    }
++	}
++	AgentPaths_vector agent_Paths;
++	Context context;
++
++	for (sInt_32 makespan = lower_bound; makespan <= makespan_limit; ++makespan)
++	{
++	    sInstance::MDD_vector MDD, extra_MDD;
++	    sInstance::InverseMDD_vector inverse_MDD;
++	    m_Instance->construct_MakespanRotationMDD(makespan, MDD, extra_MDD);
++	    m_Instance->construct_InverseMDD(MDD, inverse_MDD);
++
++	    if (m_timeout >= 0 && sStatistics::get_CPU_Seconds() - start_time >= m_timeout)
++	    {
++		return std::pair<sInt_32, sInt_32>(-2, -2);
++	    }
++	    // Empty extra_MDD disables the FUEL+/total-cost cardinality constraint.
++	    std::pair<sInt_32, sInt_32> result = omitted
++		? find_NonconflictingRotation_GlucoseCollisionsInverseOmitted(*m_Instance, context, MDD, extra_MDD, inverse_MDD, 0, agent_Paths, makespan)
++		: find_NonconflictingRotation_GlucoseCollisionsInverseDepleted(*m_Instance, context, MDD, extra_MDD, inverse_MDD, 0, agent_Paths, makespan);
++	    if (result.first >= 0)
++	    {
++		sInt_32 N_agents = m_Instance->m_start_configuration.get_AgentCount();
++		for (sInt_32 agent_id = 1; agent_id <= N_agents; ++agent_id)
++		{
++		    for (sInt_32 i = 1; i < agent_Paths[agent_id].size(); ++i)
++		    {
++			if (agent_Paths[agent_id][i - 1] != agent_Paths[agent_id][i])
++			{
++			    solution.add_Move(i - 1, sSolution::Move(agent_id, agent_Paths[agent_id][i - 1], agent_Paths[agent_id][i]));
++			}
++		    }
++		}
++		return std::pair<sInt_32, sInt_32>(makespan, result.second);
++	    }
++	    if (result.first == -2)
++	    {
++		return result;
++	    }
++	    if (m_timeout >= 0 && sStatistics::get_CPU_Seconds() - start_time > m_timeout)
++	    {
++		return std::pair<sInt_32, sInt_32>(-2, -2);
++	    }
++	}
++	return std::pair<sInt_32, sInt_32>(-1, -1);
++    }
+     
+ 
+     std::pair<sInt_32, sInt_32> sSMTCBS::find_ShortestNonconflictingCapacitatedRotationInverseDepleted(sSolution &solution, sInt_32 cost_limit) const
+diff --git a/boOX-y/src/main/rota_solver_main.cpp b/boOX-y/src/main/rota_solver_main.cpp
+index 914e895..a137367 100644
+--- a/boOX-y/src/main/rota_solver_main.cpp
++++ b/boOX-y/src/main/rota_solver_main.cpp
+@@ -84,7 +84,7 @@ namespace boOX
+ 	printf("swap_solver_boOX  --input-file=<string>\n");
+ 	printf("                  --output-file=<sting>\n");
+ 	printf("                 [--cost-limit=<int>]\n");
+-	printf("                 [--algorithm={cbs|cbs+|cbs++|cbs+++|smtcbs|smtcbs+|smtcbs++|nrfsat}]\n");
++	printf("                 [--algorithm={cbs|cbs+|cbs++|cbs+++|smtcbs|smtcbs+|smtcbs++|nrfsat|smtcbs-makespan|nrfsat-makespan}]\n");
+         printf("		 [--subopt-ratio=<double>]\n");		
+         printf("		 [--timeout=<double>]\n");
+ 	printf("		 [--capacitated]\n");
+@@ -295,7 +295,33 @@ namespace boOX
+ 
+ 	    cost = smtcbs_Solver.find_ShortestNonconflictingRotationInverseOmitted(solution, parameters.m_cost_limit);
+ 	    break;
+-	}					
++	}
++	case sCommandParameters::ALGORITHM_SMTCBS_MAKESPAN:
++	{
++	    sBoolEncoder encoder;
++	    sSMTCBS smtcbs_Solver(&encoder, parameters.m_subopt_ratio, &instance, parameters.m_timeout);
++
++	    if (parameters.m_capacitated)
++	    {
++		printf("Wrong combination of command line parameters.\n");
++		return sROTA_SOLVER_PROGRAM_WRONG_PARAMETERS_ERROR;
++	    }
++	    cost = smtcbs_Solver.find_ShortestMakespanNonconflictingRotationInverseDepleted(solution, parameters.m_cost_limit);
++	    break;
++	}
++	case sCommandParameters::ALGORITHM_NRFSAT_MAKESPAN:
++	{
++	    sBoolEncoder encoder;
++	    sSMTCBS smtcbs_Solver(&encoder, parameters.m_subopt_ratio, &instance, parameters.m_timeout);
++
++	    if (parameters.m_capacitated)
++	    {
++		printf("Wrong combination of command line parameters.\n");
++		return sROTA_SOLVER_PROGRAM_WRONG_PARAMETERS_ERROR;
++	    }
++	    cost = smtcbs_Solver.find_ShortestMakespanNonconflictingRotationInverseOmitted(solution, parameters.m_cost_limit);
++	    break;
++	}
+ 	default:
+ 	{
+ 	    sASSERT(false);
+@@ -402,7 +428,15 @@ namespace boOX
+ 	    else if (algorithm_str == "smtcbs+++" || algorithm_str == "nrfsat")
+ 	    {
+ 		command_parameters.m_algorithm = sCommandParameters::ALGORITHM_SMTCBS_PLUS_PLUS_PLUS;
+-	    }	    	    	    
++	    }
++	    else if (algorithm_str == "smtcbs-makespan")
++	    {
++		command_parameters.m_algorithm = sCommandParameters::ALGORITHM_SMTCBS_MAKESPAN;
++	    }
++	    else if (algorithm_str == "nrfsat-makespan")
++	    {
++		command_parameters.m_algorithm = sCommandParameters::ALGORITHM_NRFSAT_MAKESPAN;
++	    }
+ 	    else
+ 	    {
+ 		return sROTA_SOLVER_PROGRAM_UNRECOGNIZED_PARAMETER_ERROR;
+diff --git a/boOX-y/src/main/rota_solver_main.h b/boOX-y/src/main/rota_solver_main.h
+index 825a177..91b5a57 100644
+--- a/boOX-y/src/main/rota_solver_main.h
++++ b/boOX-y/src/main/rota_solver_main.h
+@@ -49,7 +49,9 @@ namespace boOX
+ 	    ALGORITHM_SMTCBS,
+ 	    ALGORITHM_SMTCBS_PLUS,
+ 	    ALGORITHM_SMTCBS_PLUS_PLUS,
+-	    ALGORITHM_SMTCBS_PLUS_PLUS_PLUS	    
++	    ALGORITHM_SMTCBS_PLUS_PLUS_PLUS,
++	    ALGORITHM_SMTCBS_MAKESPAN,
++	    ALGORITHM_NRFSAT_MAKESPAN
+ 	};
+ 
+ 	sCommandParameters();
+diff --git a/boOX-y/src/core/smtcbs.h b/boOX-y/src/core/smtcbs.h
+index d7e170d..0000000 100644
+--- a/boOX-y/src/core/smtcbs.h
++++ b/boOX-y/src/core/smtcbs.h
+@@ -333,6 +333,10 @@ namespace boOX
+ 										      AgentPaths_vector &agent_Paths,
+ 										      sInt_32            cost_limit) const;	
+ 
++	std::pair<sInt_32, sInt_32> find_ShortestMakespanNonconflictingRotationInverseDepleted(sSolution &solution, sInt_32 makespan_limit) const;
++	std::pair<sInt_32, sInt_32> find_ShortestMakespanNonconflictingRotationInverseOmitted(sSolution &solution, sInt_32 makespan_limit) const;
++	std::pair<sInt_32, sInt_32> find_ShortestMakespanNonconflictingRotation(sSolution &solution, sInt_32 makespan_limit, bool omitted) const;
++
+ 	std::pair<sInt_32, sInt_32> find_ShortestNonconflictingCapacitatedRotationInverseDepleted(sSolution &solution, sInt_32 cost_limit) const;
+ 	std::pair<sInt_32, sInt_32> find_ShortestNonconflictingCapacitatedRotationInverseDepleted(sInstance &instance, sSolution &solution, sInt_32 cost_limit) const;
+ 
