@@ -13,21 +13,6 @@
 namespace hybrid {
 namespace {
 
-// Keep: UA_KEEP_CLAUSES=1 (default) gives the SAT session of each new makespan every clause learned at the
-// earlier makespans (assigned collisions, as boOX does, and the flow cuts). UA_KEEP_CLAUSES=0 starts each
-// makespan from an empty formula.
-bool keep_clauses() {
-    const char *value = std::getenv("UA_KEEP_CLAUSES");
-    return value == nullptr || std::string(value) != "0";
-}
-
-// UA_KEEP_CUTS=1 (default) keeps the flow cut clauses with the other kept clauses. UA_KEEP_CUTS=0 keeps only
-// the collision clauses, as NRF-SAT does. Only matters with UA_KEEP_CLAUSES=1.
-bool keep_cuts() {
-    const char *value = std::getenv("UA_KEEP_CUTS");
-    return value == nullptr || std::string(value) != "0";
-}
-
 // Corridor-first MDDs: UA_CORRIDOR=1 (default) tries, at each makespan, the corridor levels of UA_CORRIDOR_SLACKS
 // (default "2,8") before the full MDD. UNSAT at a corridor level proves nothing; only UNSAT at the full level
 // moves on to the next makespan. A solution from a corridor level is a valid plan at that makespan. The corridor
@@ -149,9 +134,9 @@ Result solve(const Problem &problem, const Options &options) {
     const std::vector<int> slacks = corridor_slacks();   // corridor levels tried before the full MDD
     SessionOptions session_options;
     session_options.corridor_min_nodes = corridor_min_nodes();
-    session_options.keep_cuts = keep_cuts();
-    KeptClauses kept;                       // clauses of the earlier makespans (keep)
-    KeptClauses *const keep = keep_clauses() ? &kept : nullptr;
+    // Every clause found so far (collisions and min-cut clauses) is added to the session of each new makespan
+    // and corridor level, as in Sec. 5.1 of the paper.
+    KeptClauses kept;
     for (int horizon = lower_bound;; ++horizon) {
         if (Clock::now() >= deadline) return finish("timeout", "Deadline before next horizon");
         result.last_horizon = horizon;
@@ -161,7 +146,7 @@ Result solve(const Problem &problem, const Options &options) {
         FLOW_PROFILE_SEGMENT(profile_sat_init, "sat_session_init");
         for (std::size_t level = 0; level <= slacks.size(); ++level) {
         session_options.corridor_slack = level < slacks.size() ? slacks[level] : -1;   // the last level is the full MDD
-        NrfSession session(problem.assigned, horizon, deadline, result.nrf, keep, session_options);
+        NrfSession session(problem.assigned, horizon, deadline, result.nrf, &kept, session_options);
         FLOW_PROFILE_END(profile_sat_init);
         const bool corridor_level = session.corridor();
         while (true) {

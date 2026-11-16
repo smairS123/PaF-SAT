@@ -81,7 +81,6 @@ The final configuration is the default. These switches exist for experiments:
 | `UA_CORRIDOR` | on | corridors |
 | `UA_CORRIDOR_SLACKS` | `2,8` | corridor slacks |
 | `UA_CORRIDOR_MIN_NODES` | `100000` | number of MDD nodes from which corridors are used |
-| `UA_KEEP_CUTS`, `UA_KEEP_CLAUSES` | on | keep learned clauses across horizons |
 
 ## Acknowledgments
 

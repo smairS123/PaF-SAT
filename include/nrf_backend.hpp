@@ -79,17 +79,14 @@ struct SessionOptions {
     // MDD has at least `corridor_min_nodes` nodes (all agents, all layers); otherwise the session uses the full MDD.
     int corridor_slack = -1;
     std::uint64_t corridor_min_nodes = 0;
-    // With keep, carry the flow cut clauses into later sessions (later makespans and corridor levels).
-    // false = keep only the collision clauses, as NRF-SAT does. Has no effect without keep.
-    bool keep_cuts = true;
 };
 
 // Keeps Glucose, its learned clauses, and the NRF model alive at one horizon.
 // The implementation deliberately does not expose boOX headers to native flow.
 class NrfSession {
 public:
-    // kept == nullptr: start from an empty formula (the original versions). Otherwise the clauses in `kept` are
-    // added first, and every clause this session learns is added to `kept`.
+    // The clauses in `kept` are added first, and every clause this session learns is added to `kept`.
+    // kept == nullptr starts from an empty formula.
     NrfSession(const GraphProblem &problem, int horizon, Clock::time_point deadline,
                NrfStats &stats, KeptClauses *kept = nullptr, const SessionOptions &options = SessionOptions());
     ~NrfSession();

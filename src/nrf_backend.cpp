@@ -109,7 +109,7 @@ struct NrfSession::Impl {
                 if (kept) load_kept_collisions();   // the variables exist now; boOX adds them below
                 nrf->build_RotationTinyModelConstraintsInverse(
                     &solver, context, *instance, mdd, extra_mdd, inverse_mdd, horizon, 0, model);
-                if (kept && options.keep_cuts) load_kept_cuts();
+                if (kept) load_kept_cuts();
             }
         }
         stats.encoding_seconds += seconds_since(start);
@@ -303,7 +303,7 @@ struct NrfSession::Impl {
         } else {
             encoder.cast_Clause(&solver, literals);
         }
-        if (kept && options.keep_cuts) kept->data().cuts.push_back(clause);
+        if (kept) kept->data().cuts.push_back(clause);
         has_candidate = false;
     }
 };
