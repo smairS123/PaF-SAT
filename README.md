@@ -12,9 +12,10 @@ Smair Smair, Fouad Haddad, Oren Salzman (WoMAPF 2027).
 * **Ph1: Assigned-Agent Planning.** NRF-SAT plans the assigned agents for a given makespan.
 * **Ph2: Unassigned-Agent Flow.** A max-flow test on the time-expanded graph checks whether the unassigned agents can
   move around the assigned agents' plan.
-* On failure, Ph2 returns **min-cut feedback**, which PaF-SAT adds to Ph1 as a clause. The clause is built from the
-  earliest failed prefix and the minimal realization conflict computed on the merged network. Corridors with slacks 2
-  and then 8 are switched on when the full MDD has at least 10^5 nodes.
+* On failure, Ph2 returns **min-cut feedback**, which PaF-SAT adds to Ph1 as a clause. The cut is taken at the
+  earliest failed prefix, and among its minimum cuts the Min-FC rule picks one with the smallest flow conflict
+  (computed on the merged network). When the MDDs of all assigned agents together have at least 10^5 (vertex, time)
+  pairs, each makespan is first tried with corridors of slack 2 and then 8, and then with the full MDDs.
 
 ## Requirements
 
@@ -80,7 +81,7 @@ The final configuration is the default. These switches exist for experiments:
 |---|---|---|
 | `UA_CORRIDOR` | on | corridors |
 | `UA_CORRIDOR_SLACKS` | `2,8` | corridor slacks |
-| `UA_CORRIDOR_MIN_NODES` | `100000` | number of MDD nodes from which corridors are used |
+| `UA_CORRIDOR_MIN_NODES` | `100000` | corridors are used when the MDDs of all assigned agents together have at least this many (vertex, time) pairs |
 
 ## Acknowledgments
 
